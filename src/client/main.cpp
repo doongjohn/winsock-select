@@ -46,11 +46,7 @@ auto main() -> int {
   auto input_option = ftxui::InputOption{};
   input_option.multiline = false;
   input_option.on_enter = [&]() {
-    if (text_input == "stop") {
-      stop_signal.store(true);
-    } else {
-      client->connection->send(text_input);
-    }
+    client->connection->send(text_input);
     text_input = "";
   };
   auto textarea = ftxui::Input(&text_input, input_option);
