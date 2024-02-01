@@ -1,4 +1,4 @@
-# winsock2 study
+# winsock2 + select 함수를 이용한 서버와 클라이언트
 
 ## bind
 
