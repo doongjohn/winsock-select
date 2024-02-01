@@ -1,0 +1,8 @@
+compile_commands.json
+
+.cache/
+.vscode/
+
+build*/
+vendor/**
+!vendor/.gitkeep
