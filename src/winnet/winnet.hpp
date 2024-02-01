@@ -47,7 +47,7 @@ public:
   SOCKET socket;
   sockaddr_in addr_info;
   std::string ip;
-  std::string name;
+  std::string username;
 
 private:
   std::vector<char> recv_buf;

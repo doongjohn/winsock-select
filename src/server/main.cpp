@@ -29,7 +29,7 @@ auto main() -> int {
 
   server->callbacks.on_conn_ended = [](winnet::Server *server, winnet::Connection &conn) {
     std::cout << std::format("client disconnected: {:016X}\n", conn.socket);
-    server->send_all(std::format("[서버] {}의 접속이 끊겼습니다.", conn.name));
+    server->send_all(std::format("[서버] {}의 접속이 끊겼습니다.", conn.username));
   };
 
   server->callbacks.on_recv_error = [](winnet::Server *, winnet::Connection &conn, int err_code) {
@@ -40,16 +40,16 @@ auto main() -> int {
     auto recv_string = conn.get_recv_string();
     std::cout << std::format("recv: {}\n", recv_string);
 
-    if (conn.name.empty()) {
-      conn.name = recv_string;
+    if (conn.username.empty()) {
+      conn.username = recv_string;
       conn.send(std::format("[서버] 당신의 이름은 {} 입니다.", recv_string));
 
       auto ignore_socket = std::array{conn.socket};
-      server->send_all_but(ignore_socket, std::format("[서버] {}가 접속했습니다.", conn.name));
+      server->send_all_but(ignore_socket, std::format("[서버] {}가 접속했습니다.", conn.username));
       return;
     }
 
-    server->send_all(std::format("{}: {}", conn.name, recv_string));
+    server->send_all(std::format("{}: {}", conn.username, recv_string));
   };
 
   auto timeout = timeval{
