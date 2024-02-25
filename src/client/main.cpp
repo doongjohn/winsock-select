@@ -49,7 +49,7 @@ auto main() -> int {
 
   client->cb.on_conn_started = [&](winnet::Client *, winnet::Connection &) {
     screen.Post([&]() {
-      message_list.emplace_back(std::format("서버에 접속되었습니다. {}:{}\n", SERVER_IP, SERVER_PORT));
+      message_list.emplace_back(std::format("서버에 접속되었습니다. ({}:{})\n", SERVER_IP, SERVER_PORT));
       selected_msg = static_cast<int>(message_list.size() - 1);
       screen.PostEvent(ftxui::Event::Custom);
     });
@@ -79,11 +79,6 @@ auto main() -> int {
     // wait for fixui screen loop to start
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    screen.Post([&]() {
-      message_list.emplace_back("서버에 접속중...");
-      selected_msg = static_cast<int>(message_list.size() - 1);
-      screen.PostEvent(ftxui::Event::Custom);
-    });
     while (!client->connect(conn_handler, SERVER_IP, SERVER_PORT)) {
       screen.Post([&]() {
         message_list.emplace_back("서버에 접속중...");
