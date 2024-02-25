@@ -3,7 +3,6 @@
 #include <chrono>
 #include <future>
 #include <format>
-#include <iostream>
 
 #include <ftxui/component/captured_mouse.hpp>
 #include <ftxui/component/component.hpp>
@@ -18,22 +17,19 @@
 #define SERVER_PORT "8000"
 
 auto main() -> int {
-  // init winsock
   if (!winnet::wsa_init()) {
     return EXIT_FAILURE;
   }
   defer(winnet::wsa_deinit);
 
   auto client = new winnet::Client{};
-  if (!client->init()) {
-    return EXIT_FAILURE;
-  }
+  defer([=] { delete (client); });
 
-  auto stop_signal = std::atomic_bool{false};
+  auto stop_flag = std::atomic_bool{false};
   auto conn_handler = winnet::ConnectionHandler{client};
   conn_handler.init();
 
-  auto screen = ftxui::ScreenInteractive::Fullscreen();
+  auto screen = ftxui::ScreenInteractive::FullscreenAlternateScreen();
   auto message_list = std::vector<std::string>{};
   auto selected_msg = 0;
 
@@ -51,20 +47,23 @@ auto main() -> int {
   };
   auto textarea = ftxui::Input(&text_input, input_option);
 
-  auto container = ftxui::Container::Vertical({
-    messages,
-    textarea,
-  });
-
-  client->callbacks.on_conn_connected = [&](winnet::Client *, winnet::Connection &) {
-    std::cout << std::format("connected: {}:{}\n", SERVER_IP, SERVER_PORT);
+  client->cb.on_conn_started = [&](winnet::Client *, winnet::Connection &) {
+    screen.Post([&]() {
+      message_list.emplace_back(std::format("서버에 접속되었습니다. {}:{}\n", SERVER_IP, SERVER_PORT));
+      selected_msg = static_cast<int>(message_list.size() - 1);
+      screen.PostEvent(ftxui::Event::Custom);
+    });
   };
 
-  client->callbacks.on_recv_error = [](winnet::Client *, winnet::Connection &, int err_code) {
-    utils::print_wsa_error("recv error", err_code);
+  client->cb.on_conn_ended = [&](winnet::Client *, winnet::Connection &) {
+    screen.Post([&]() {
+      message_list.emplace_back("서버와 접속이 끊겼습니다.");
+      selected_msg = static_cast<int>(message_list.size() - 1);
+      screen.PostEvent(ftxui::Event::Custom);
+    });
   };
 
-  client->callbacks.on_recv_success = [&](winnet::Client *, winnet::Connection &conn) {
+  client->cb.on_recv_success = [&](winnet::Client *, winnet::Connection &conn) {
     screen.Post([&, recv_string = conn.get_recv_string()]() {
       message_list.push_back(recv_string);
       selected_msg = static_cast<int>(message_list.size() - 1);
@@ -72,25 +71,46 @@ auto main() -> int {
     });
   };
 
-  std::cout << "connecting to server...\n";
-  while (!client->connect(conn_handler, SERVER_IP, SERVER_PORT)) {
-    std::cerr << "retrying...\n";
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-  }
-
-  std::cout << "client started\n";
+  client->cb.on_recv_error = [](winnet::Client *, winnet::Connection &, int err_code) {
+    utils::print_wsa_error("recv error", err_code);
+  };
 
   auto fut_tick = std::async(std::launch::async, [&]() {
-    auto timeout = timeval{
+    // wait for fixui screen loop to start
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    screen.Post([&]() {
+      message_list.emplace_back("서버에 접속중...");
+      selected_msg = static_cast<int>(message_list.size() - 1);
+      screen.PostEvent(ftxui::Event::Custom);
+    });
+    while (!client->connect(conn_handler, SERVER_IP, SERVER_PORT)) {
+      screen.Post([&]() {
+        message_list.emplace_back("서버에 접속중...");
+        selected_msg = static_cast<int>(message_list.size() - 1);
+        screen.PostEvent(ftxui::Event::Custom);
+      });
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+
+    const auto timeout = timeval{
       .tv_sec = 1,
       .tv_usec = 0,
     };
-    if (!conn_handler.run(timeout, stop_signal)) {
-      stop_signal.store(true);
+
+    if (!conn_handler.run(timeout, stop_flag)) {
+      stop_flag.store(true);
     }
   });
 
-  auto component = ftxui::Renderer(container, [&] {
+  auto container = ftxui::Container::Vertical({
+    messages,
+    textarea,
+  });
+
+  textarea->TakeFocus();
+
+  screen.Loop(ftxui::Renderer(container, [&] {
     return ftxui::vbox({
              ftxui::text("채팅 서버") | ftxui::center,
              ftxui::separator(),
@@ -99,13 +119,10 @@ auto main() -> int {
              textarea->Render(),
            }) |
            ftxui::border;
-  });
+  }));
 
-  textarea->TakeFocus();
+  stop_flag.store(true);
+  fut_tick.wait();
 
-  screen.Loop(component);
-  stop_signal.store(true);
-
-  std::cout << "client closed\n";
   return EXIT_SUCCESS;
 }

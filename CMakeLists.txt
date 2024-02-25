@@ -11,10 +11,9 @@ project(
   LANGUAGES CXX
 )
 
-if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  message(FATAL_ERROR "this project only works with Windows MSVC")
-endif()
-
+# ===
+# target: utils
+# ===
 add_library(utils OBJECT "")
 
 target_compile_features(utils
@@ -29,6 +28,9 @@ target_sources(utils
 target_include_directories(utils
   PUBLIC src/utils)
 
+# ===
+# target: winnet
+# ===
 add_library(winnet OBJECT "")
 
 target_compile_features(winnet
@@ -47,6 +49,9 @@ target_link_libraries(winnet
   PUBLIC ws2_32 # <-- this is for winsock2
   PRIVATE utils)
 
+# ===
+# target: server
+# ===
 add_executable(server "")
 
 set_target_properties(server
@@ -56,10 +61,18 @@ set_target_properties(server
 target_compile_features(server
   PRIVATE cxx_std_20)
 
-target_compile_options(server
-  PRIVATE
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(server
     # more warnings
-    /Wall /sdl)
+    PRIVATE -Wall
+    PRIVATE -Wextra)
+endif()
+if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  target_compile_options(server
+    # more warnings
+    PRIVATE /Wall
+    PRIVATE /sdl)
+endif()
 
 file(GLOB SOURCES
   src/server/*.cpp
@@ -71,6 +84,9 @@ target_link_libraries(server
   PRIVATE utils
   PRIVATE winnet)
 
+# ===
+# target: client
+# ===
 add_executable(client "")
 
 set_target_properties(client
@@ -80,10 +96,18 @@ set_target_properties(client
 target_compile_features(client
   PRIVATE cxx_std_20)
 
-target_compile_options(client
-  PRIVATE
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(client
     # more warnings
-    /Wall /sdl)
+    PRIVATE -Wall
+    PRIVATE -Wextra)
+endif()
+if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  target_compile_options(client
+    # more warnings
+    PRIVATE /Wall
+    PRIVATE /sdl)
+endif()
 
 file(GLOB SOURCES
   src/client/*.cpp

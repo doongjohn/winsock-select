@@ -77,7 +77,7 @@ struct ConnectionCallbacks {
   std::function<void(T *, ConnectionHandler &, int)> on_select_error;
   std::function<void(T *, ConnectionHandler &)> on_select_timeout;
   std::function<void(T *, int)> on_conn_accept_error;
-  std::function<void(T *, Connection &)> on_conn_connected;
+  std::function<void(T *, Connection &)> on_conn_started;
   std::function<void(T *, Connection &)> on_conn_ended;
   std::function<void(T *, Connection &, int)> on_recv_error;
   std::function<void(T *, Connection &)> on_recv_success;
@@ -89,7 +89,7 @@ struct ConnectionCallbacks {
     on_select_error = [](T *, ConnectionHandler &, int) {};
     on_select_timeout = [](T *, ConnectionHandler &) {};
     on_conn_accept_error = [](T *, int) {};
-    on_conn_connected = [](T *, Connection &) {};
+    on_conn_started = [](T *, Connection &) {};
     on_conn_ended = [](T *, Connection &) {};
     on_recv_error = [](T *, Connection &, int) {};
     on_recv_success = [](T *, Connection &) {};
@@ -121,13 +121,12 @@ public:
   SOCKET listen_socket;
   uint16_t port;
 
-  ConnectionCallbacks<Server> callbacks;
+  ConnectionCallbacks<Server> cb;
 
   Server();
   ~Server() override;
 
-  auto init() -> bool;
-  auto bind(uint16_t port) -> bool;
+  auto init(uint16_t port) -> bool;
   auto listen() -> bool;
 };
 
@@ -135,19 +134,18 @@ class Client final : public NetEntity {
 public:
   Connection *connection;
 
-  ConnectionCallbacks<Client> callbacks;
+  ConnectionCallbacks<Client> cb;
 
   Client();
   ~Client() override;
 
-  auto init() -> bool;
   auto connect(ConnectionHandler &connection_handler, std::string ip, std::string port) -> bool;
   auto disconnect(ConnectionHandler &connection_handler) -> void;
 };
 
 struct ConnectionHandler {
   NetEntity *net_entity;
-  ConnectionCallbacks<NetEntity> &callbacks;
+  ConnectionCallbacks<NetEntity> &cb;
 
   fd_set read_set;
   fd_set write_set;

@@ -135,7 +135,7 @@ Server::~Server() {
   ::closesocket(listen_socket);
 }
 
-auto Server::init() -> bool {
+auto Server::init(uint16_t port) -> bool {
   // create a socket for the server to listen for client connections
   listen_socket = ::WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
   if (listen_socket == INVALID_SOCKET) {
@@ -143,19 +143,12 @@ auto Server::init() -> bool {
     return false;
   }
 
-  return true;
-}
-
-auto Server::bind(uint16_t port) -> bool {
+  // bind
   this->port = port;
   auto addr_hint = sockaddr_in{};
   addr_hint.sin_family = AF_INET;
   addr_hint.sin_addr.S_un.S_addr = ::htonl(INADDR_ANY); // INADDR_ANY == 0.0.0.0
-  addr_hint.sin_port = ::htons(port);
-
-  // htonl, htons
-  // 필요한 바이트 순서는 big endian인데, 전달되는 데이터가 little endian일 수 있습니다.
-  // 이를 위해 해당 함수를 사용하면 big endian으로 변경됩니다.
+  addr_hint.sin_port = ::htons(port);                   // htonl, htons -> little endian에서 big endian으로 변환
 
   if (::bind(listen_socket, std::bit_cast<sockaddr *>(&addr_hint), sizeof(addr_hint)) == SOCKET_ERROR) {
     utils::print_wsa_error("[winsock error] bind failed");
@@ -180,10 +173,6 @@ Client::~Client() {
   if (connection != nullptr) {
     ::shutdown(connection->socket, SD_SEND);
   }
-}
-
-auto Client::init() -> bool {
-  return true;
 }
 
 auto Client::connect(ConnectionHandler &connection_handler, std::string ip, std::string port) -> bool {
@@ -233,7 +222,7 @@ auto Client::connect(ConnectionHandler &connection_handler, std::string ip, std:
   auto conn = Connection{connect_socket, *(SOCKADDR_IN *)ptr->ai_addr};
   connections.insert({connect_socket, conn});
   connection = &connections.at(connect_socket);
-  connection_handler.callbacks.on_conn_connected(this, *connection);
+  connection_handler.cb.on_conn_started(this, *connection);
   return true;
 }
 
@@ -250,72 +239,71 @@ auto Client::disconnect(ConnectionHandler &connection_handler) -> void {
     utils::print_wsa_error("[winsock error] shutdown failed");
   }
 
-  connection_handler.callbacks.on_conn_ended(this, *connection);
+  connection_handler.cb.on_conn_ended(this, *connection);
 }
 
-ConnectionHandler::ConnectionHandler(NetEntity *net_entity)
-    : net_entity(net_entity), callbacks(net_entity->base_callbacks) {
+ConnectionHandler::ConnectionHandler(NetEntity *net_entity) : net_entity(net_entity), cb(net_entity->base_callbacks) {
   FD_ZERO(&write_set);
   FD_ZERO(&read_set);
   FD_ZERO(&err_set);
 
   if (auto server = dynamic_cast<Server *>(net_entity)) {
-    callbacks.on_select_error = [server](auto, auto &connection_handler, int err_code) {
-      server->callbacks.on_select_error(server, connection_handler, err_code);
+    cb.on_select_error = [server](auto, auto &connection_handler, int err_code) {
+      server->cb.on_select_error(server, connection_handler, err_code);
     };
-    callbacks.on_select_timeout = [server](auto, auto &connection_handler) {
-      server->callbacks.on_select_timeout(server, connection_handler);
+    cb.on_select_timeout = [server](auto, auto &connection_handler) {
+      server->cb.on_select_timeout(server, connection_handler);
     };
-    callbacks.on_conn_accept_error = [server](auto, int err_code) {
-      server->callbacks.on_conn_accept_error(server, err_code);
+    cb.on_conn_accept_error = [server](auto, int err_code) {
+      server->cb.on_conn_accept_error(server, err_code);
     };
-    callbacks.on_conn_connected = [server](auto, Connection &conn) {
-      server->callbacks.on_conn_connected(server, conn);
+    cb.on_conn_started = [server](auto, Connection &conn) {
+      server->cb.on_conn_started(server, conn);
     };
-    callbacks.on_conn_ended = [server](auto, Connection &conn) {
-      server->callbacks.on_conn_ended(server, conn);
+    cb.on_conn_ended = [server](auto, Connection &conn) {
+      server->cb.on_conn_ended(server, conn);
     };
-    callbacks.on_recv_error = [server](auto, Connection &conn, int err_code) {
-      server->callbacks.on_recv_error(server, conn, err_code);
+    cb.on_recv_error = [server](auto, Connection &conn, int err_code) {
+      server->cb.on_recv_error(server, conn, err_code);
     };
-    callbacks.on_recv_success = [server](auto, Connection &conn) {
-      server->callbacks.on_recv_success(server, conn);
+    cb.on_recv_success = [server](auto, Connection &conn) {
+      server->cb.on_recv_success(server, conn);
     };
-    callbacks.on_send_error = [server](auto, Connection &conn, int err_code) {
-      server->callbacks.on_send_error(server, conn, err_code);
+    cb.on_send_error = [server](auto, Connection &conn, int err_code) {
+      server->cb.on_send_error(server, conn, err_code);
     };
-    callbacks.on_send_success = [server](auto, Connection &conn) {
-      server->callbacks.on_send_success(server, conn);
+    cb.on_send_success = [server](auto, Connection &conn) {
+      server->cb.on_send_success(server, conn);
     };
   }
 
   if (auto client = dynamic_cast<Client *>(net_entity)) {
-    callbacks.on_select_error = [client](auto, auto &connection_handler, int err_code) {
-      client->callbacks.on_select_error(client, connection_handler, err_code);
+    cb.on_select_error = [client](auto, auto &connection_handler, int err_code) {
+      client->cb.on_select_error(client, connection_handler, err_code);
     };
-    callbacks.on_select_timeout = [client](auto, auto &connection_handler) {
-      client->callbacks.on_select_timeout(client, connection_handler);
+    cb.on_select_timeout = [client](auto, auto &connection_handler) {
+      client->cb.on_select_timeout(client, connection_handler);
     };
-    callbacks.on_conn_accept_error = [client](auto, int err_code) {
-      client->callbacks.on_conn_accept_error(client, err_code);
+    cb.on_conn_accept_error = [client](auto, int err_code) {
+      client->cb.on_conn_accept_error(client, err_code);
     };
-    callbacks.on_conn_connected = [client](auto, Connection &conn) {
-      client->callbacks.on_conn_connected(client, conn);
+    cb.on_conn_started = [client](auto, Connection &conn) {
+      client->cb.on_conn_started(client, conn);
     };
-    callbacks.on_conn_ended = [client](auto, Connection &conn) {
-      client->callbacks.on_conn_ended(client, conn);
+    cb.on_conn_ended = [client](auto, Connection &conn) {
+      client->cb.on_conn_ended(client, conn);
     };
-    callbacks.on_recv_error = [client](auto, Connection &conn, int err_code) {
-      client->callbacks.on_recv_error(client, conn, err_code);
+    cb.on_recv_error = [client](auto, Connection &conn, int err_code) {
+      client->cb.on_recv_error(client, conn, err_code);
     };
-    callbacks.on_recv_success = [client](auto, Connection &conn) {
-      client->callbacks.on_recv_success(client, conn);
+    cb.on_recv_success = [client](auto, Connection &conn) {
+      client->cb.on_recv_success(client, conn);
     };
-    callbacks.on_send_error = [client](auto, Connection &conn, int err_code) {
-      client->callbacks.on_send_error(client, conn, err_code);
+    cb.on_send_error = [client](auto, Connection &conn, int err_code) {
+      client->cb.on_send_error(client, conn, err_code);
     };
-    callbacks.on_send_success = [client](auto, Connection &conn) {
-      client->callbacks.on_send_success(client, conn);
+    cb.on_send_success = [client](auto, Connection &conn) {
+      client->cb.on_send_success(client, conn);
     };
   }
 }
@@ -343,13 +331,13 @@ auto ConnectionHandler::tick(timeval timeout) -> bool {
   if (select_result == SOCKET_ERROR) {
     const auto err_code = ::WSAGetLastError();
     utils::print_wsa_error("[winsock error] select failed", err_code);
-    callbacks.on_select_error(net_entity, *this, err_code);
+    cb.on_select_error(net_entity, *this, err_code);
     return false;
   }
 
   // check select timeout
   if (select_result == 0) {
-    callbacks.on_select_timeout(net_entity, *this);
+    cb.on_select_timeout(net_entity, *this);
     return true;
   }
 
@@ -369,7 +357,7 @@ auto ConnectionHandler::tick(timeval timeout) -> bool {
         if (accept_socket == INVALID_SOCKET) {
           const int err_code = ::WSAGetLastError();
           utils::print_wsa_error("[winsock error] accept failed", err_code);
-          callbacks.on_conn_accept_error(net_entity, err_code);
+          cb.on_conn_accept_error(net_entity, err_code);
           continue;
         }
 
@@ -377,12 +365,13 @@ auto ConnectionHandler::tick(timeval timeout) -> bool {
         FD_SET(conn.socket, &read_set);
         FD_SET(conn.socket, &write_set);
         net_entity->connections.insert({conn.socket, conn});
-        callbacks.on_conn_connected(net_entity, net_entity->connections.at(conn.socket));
+        cb.on_conn_started(net_entity, net_entity->connections.at(conn.socket));
         continue;
       }
     }
 
     if (!net_entity->connections.contains(sock)) {
+      // skip removed socket
       continue;
     }
 
@@ -419,15 +408,15 @@ auto ConnectionHandler::tick(timeval timeout) -> bool {
       conn.close();
       FD_CLR(conn.socket, &read_set);
       FD_CLR(conn.socket, &write_set);
-      callbacks.on_recv_error(net_entity, conn, err_code);
-      callbacks.on_conn_ended(net_entity, conn);
+      cb.on_recv_error(net_entity, conn, err_code);
+      cb.on_conn_ended(net_entity, conn);
       net_entity->connections.erase(conn.socket);
     } else {
       if (recv_len == 0) {
         conn.close();
         FD_CLR(conn.socket, &read_set);
         FD_CLR(conn.socket, &write_set);
-        callbacks.on_conn_ended(net_entity, conn);
+        cb.on_conn_ended(net_entity, conn);
         net_entity->connections.erase(conn.socket);
       } else {
         conn.cur_recv_amount += recv_len;
@@ -440,7 +429,7 @@ auto ConnectionHandler::tick(timeval timeout) -> bool {
             conn.is_recv_header = false;
           } else {
             // on packet body recv finish
-            callbacks.on_recv_success(net_entity, conn);
+            cb.on_recv_success(net_entity, conn);
             conn.recv_total_size = 0;
             conn.is_recv_header = true;
           }
@@ -461,6 +450,7 @@ auto ConnectionHandler::tick(timeval timeout) -> bool {
     }
 
     if (!net_entity->connections.contains(sock)) {
+      // skip removed socket
       continue;
     }
 
@@ -485,8 +475,8 @@ auto ConnectionHandler::tick(timeval timeout) -> bool {
           conn.close();
           FD_CLR(conn.socket, &read_set);
           FD_CLR(conn.socket, &write_set);
-          callbacks.on_send_error(net_entity, conn, err_code);
-          callbacks.on_conn_ended(net_entity, conn);
+          cb.on_send_error(net_entity, conn, err_code);
+          cb.on_conn_ended(net_entity, conn);
           net_entity->connections.erase(conn.socket);
         } else {
           conn.cur_send_amount += send_len;
@@ -494,7 +484,7 @@ auto ConnectionHandler::tick(timeval timeout) -> bool {
 
           if (conn.cur_send_amount == conn.send_buf.size()) {
             // packet recive finish
-            callbacks.on_send_success(net_entity, conn);
+            cb.on_send_success(net_entity, conn);
             conn.send_buf.clear();
             conn.cur_send_amount = 0;
           }
